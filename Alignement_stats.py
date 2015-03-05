@@ -7,26 +7,23 @@ import sys
 
 
 
-#### compute for multipole i and j, n_sim simulations and compare to Smica values
-#n_sim = 10
-#i = 2
-#j = 3
 
-
-
+plt.ion()
 ell_max = 8
 
-
-map = hp.read_map("dx11_v2_commander_int_cmb_005a_2048.fits")
-alm = hp.map2alm(map,lmax=300)
-
-a_ij = np.zeros((ell_max+1,ell_max+1))
-
-for i in range(2,ell_max+1):
-    for j in range(i,ell_max+1):
-        a_ij[i,j] = Al.get_angle_multipole_ij(alm,i,j,16)
-        
-
-
-
-
+for name in ["commander"]:#,"nilc","smica"]:
+    print "name"
+    map = hp.read_map("dx11_v2_%s_int_cmb_005a_2048.fits"%name)
+    alm = hp.map2alm(map,lmax=300)
+    a_ij = np.zeros((ell_max+1,ell_max+1))*np.nan
+    for i in range(2,ell_max+1):
+        for j in range(i+1,ell_max+1):
+            a_ij[i,j] = Al.get_angle_multipole_ij(alm,i,j)
+    #print a_ij
+    plt.figure()
+    plt.xticks(np.arange(1,ell_max))
+    plt.yticks(np.arange(1,ell_max))
+    plt.imshow(np.abs(np.cos(a_ij)),interpolation = 'nearest',cmap="gist_yarg")
+    plt.grid()
+    plt.title("%s, (l,b) scalar product"%name)
+    plt.colorbar()
