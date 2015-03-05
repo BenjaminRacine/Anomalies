@@ -28,6 +28,18 @@ def ang_mom_disp(alm,ell):
 
 
 
+def amd_map(alm,ell,nside=16):
+    '''                                                                                                                                                                        
+    compute the angular momentum dispersion corresponding to each pixels direction                                                                                             
+    '''
+    map_amd = np.zeros(hp.nside2npix(nside))
+    for i in range(hp.nside2npix(nside)):
+        tp = hp.pix2ang(nside,i)
+        alm_temp = alm.copy()
+        map_amd[i] = func_to_min(np.array(tp),alm_temp,ell)
+    return map_amd
+
+
 
 def get_angle_gal(theta1,phi1,theta2,phi2):
     """
@@ -56,40 +68,51 @@ def get_angle_gal(theta1,phi1,theta2,phi2):
 def func_to_min(thetaphi,alm,ell):
     '''                                                                                                                                                                       
     function that gives the amd for:                                                                                                                                          
-    a given (theta,phi), alm and ell. To be given to a minimizer                                                                                                              
+    a given (theta,phi), alm and ell. 
+    To be given to a minimizer, WARNING: With the angle restrictions, the starting point should not be (0,0), or Powell can get stuck. Better use [np.pi/2,np.pi]
     '''
-    alm_temp = alm.copy()
-    thetaphi[0] = thetaphi[0]%(np.pi)
-    thetaphi[1] = thetaphi[1]%(2*np.pi)
-    hp.rotate_alm(alm_temp,thetaphi[1],thetaphi[0],0)
-    amd = ang_mom_disp(alm_temp,ell)
-    #print "temp",alm_temp[-1],"alm",alm[-1],-amd,thetaphi
-    return -amd
+    ##### After tries on restricting, using modulos and trigo rules, here we force the bounds (might be improved by chosing another minimizer)
+    if thetaphi[0]<0:
+        return 1e30
+    elif thetaphi[0]>np.pi:
+        return 1e30
+    elif thetaphi[1]<0:
+        return 1e30
+    elif thetaphi[1]>2*np.pi:
+        return 1e30
+    else:
+        ##### We copy alm since rotate_alm is 'active'
+        alm_temp = alm.copy()
+        ##### Here we rotate first with psi, ie the first arg, then with theta, in order to bring the chosen (theta,phi) direction to the north pole.
+        hp.rotate_alm(alm_temp,-thetaphi[1],-thetaphi[0],0)
+        amd = ang_mom_disp(alm_temp,ell)
+        return -amd
 
 
 
-def get_angle_multipole_ij(alm,ell_i,ell_j,nside):
+def get_angle_multipole_ij(alm,ell_i,ell_j):
     '''
     Give the relative angle between 2 maximum amd directions for a given map
     '''
     #############################################  maybe important to randomly start, and not 0,0 #############################################
     alm_i = filtermap(alm,ell_i)
     alm_j = filtermap(alm,ell_j)
-    thetaphi_final_i = op.fmin_powell(func_to_min, [0,0], args=(alm_i,ell_i),xtol=0.0001, ftol=0.00000001,disp=False)
-    thetaphi_final_j = op.fmin_powell(func_to_min, [0,0], args=(alm_j,ell_j),xtol=0.0001, ftol=0.00000001,disp=False)
-    angle_ij = get_angle_gal(thetaphi_final_i[0],thetaphi_final_i[1],thetaphi_final_j[0],thetaphi_final_j[1])
+    thetaphi_final_i = op.fmin_powell(func_to_min, [np.pi/2,np.pi], args=(alm_i,ell_i),xtol=0.0001, ftol=0.00000001,disp=False)
+    thetaphi_final_j = op.fmin_powell(func_to_min, [np.pi/2,np.pi], args=(alm_j,ell_j),xtol=0.0001, ftol=0.00000001,disp=False)
+    ##### Here we restrict to the cos(angle_ij) in [0,1] to avoid redundancy
+    angle_ij = np.arccos(np.abs(np.cos(get_angle_gal(thetaphi_final_i[0],thetaphi_final_i[1],thetaphi_final_j[0],thetaphi_final_j[1]))))
     return angle_ij
 
 
-def get_dot_multipole_ij(alm,ell_i,ell_j,nside):
+def get_dot_multipole_ij(alm,ell_i,ell_j):
     '''                                                                                                                                                                       
     Give the relative angle between 2 maximum amd directions for a given map                                                                                                  
     '''
-    #############################################  maybe important to randomly start, and not 0,0 #############################################                                
+    #############################################  maybe important to randomly start, and not 0,0 #############################################                               
     alm_i = filtermap(alm,ell_i)
     alm_j = filtermap(alm,ell_j)
-    thetaphi_final_i = op.fmin_powell(func_to_min, [0,0], args=(alm_i,ell_i),xtol=0.0001, ftol=0.00000001,disp=False)
-    thetaphi_final_j = op.fmin_powell(func_to_min, [0,0], args=(alm_j,ell_j),xtol=0.0001, ftol=0.00000001,disp=False)
+    thetaphi_final_i = op.fmin_powell(func_to_min, [np.pi/2,np.pi], args=(alm_i,ell_i),xtol=0.0001, ftol=0.00000001,disp=False)
+    thetaphi_final_j = op.fmin_powell(func_to_min, [np.pi/2,np.pi], args=(alm_j,ell_j),xtol=0.0001, ftol=0.00000001,disp=False)
     vec_i = hp.ang2vec(thetaphi_final_i[0],thetaphi_final_i[1])
     vec_j = hp.ang2vec(thetaphi_final_j[0],thetaphi_final_j[1])
     dot = np.dot(vec_i,vec_j)
