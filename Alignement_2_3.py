@@ -1,6 +1,9 @@
 import healpy as hp
 import numpy as np
 from matplotlib import pyplot as plt
+import matplotlib.colors
+import scipy.stats
+import scipy.signal
 import scipy.optimize as op
 
 def filtermap(alm,ell):
@@ -29,8 +32,8 @@ def ang_mom_disp(alm,ell):
 
 
 def amd_map(alm,ell,nside=16):
-    '''                                                                                                                                                                       
-    compute the angular momentum dispersion corresponding to each pixels direction                                                                                           
+    '''
+    compute the angular momentum dispersion corresponding to each pixels direction
     '''
     map_amd = np.zeros(hp.nside2npix(nside))
     for i in range(hp.nside2npix(nside)):
@@ -66,8 +69,8 @@ def get_angle_gal(theta1,phi1,theta2,phi2):
 
 
 def func_to_min(thetaphi,alm,ell):
-    '''                                                                                                                                                                       
-    function that gives the amd for:                                                                                                                                          
+    '''
+    function that gives the amd for:
     a given (theta,phi), alm and ell. 
     To be given to a minimizer, WARNING: With the angle restrictions, the starting point should not be (0,0), or Powell can get stuck. Better use [np.pi/2,np.pi]
     '''
@@ -94,7 +97,6 @@ def get_angle_multipole_ij(alm,ell_i,ell_j):
     '''
     Give the relative angle between 2 maximum amd directions for a given map
     '''
-    #############################################  maybe important to randomly start, and not 0,0 #############################################
     alm_i = filtermap(alm,ell_i)
     alm_j = filtermap(alm,ell_j)
     thetaphi_final_i = op.fmin_powell(func_to_min, [np.pi/2,np.pi], args=(alm_i,ell_i),xtol=0.0001, ftol=0.00000001,disp=False)
@@ -105,10 +107,9 @@ def get_angle_multipole_ij(alm,ell_i,ell_j):
 
 
 def get_dot_multipole_ij(alm,ell_i,ell_j):
-    '''                                                                                                                                                                       
-    Give the relative angle between 2 maximum amd directions for a given map                                                                                                  
     '''
-    #############################################  maybe important to randomly start, and not 0,0 #############################################                               
+    Give the relative angle between 2 maximum amd directions for a given map
+    '''
     alm_i = filtermap(alm,ell_i)
     alm_j = filtermap(alm,ell_j)
     thetaphi_final_i = op.fmin_powell(func_to_min, [np.pi/2,np.pi], args=(alm_i,ell_i),xtol=0.0001, ftol=0.00000001,disp=False)
@@ -121,7 +122,8 @@ def get_dot_multipole_ij(alm,ell_i,ell_j):
 
 def plot_first_multipoles(map,nside,ell_max):
     '''
-    Given a map and a nside, this module shows the ell_max first multipoles (starting at quadrupole), the "axis of maximal power" for each of them, and a map of all directions, 
+    Given a map and a nside, this module shows the ell_max first multipoles (starting at quadrupole), 
+    the "axis of maximal power" for each of them, and a map of all directions, 
     '''
     alm = hp.map2alm(map,lmax=300)
     plt.figure()
@@ -149,6 +151,29 @@ def plot_first_multipoles(map,nside,ell_max):
     hp.mollview(map_zeros)
 
 
+
+def plot_scal_prod(ell_max,map, name ="Input map"):
+    '''
+    2D plot of the scalar product of 2 directions
+    '''
+    c = mcolors.ColorConverter().to_rgb
+    rvb = make_colormap([c('red'),c('pink'),0.1, c('pink'),c('WhiteSmoke'),0.3,c('WhiteSmoke'),0.7,c('WhiteSmoke'),(153.0/255,153.0/255,1.),0.9 ,(153.0/255,153.0/255,1.),c('blue')])
+    #rvb = make_colormap([c('black'), c('red'),0.1,c('red'),c('white'),0.15 ,c('white'),0.85,c('white'),c('yellow'),0.9,c('yellow'),c('green')])
+    alm = hp.map2alm(map,lmax=300)
+    a_ij = np.zeros((ell_max-1,ell_max-1))*np.nan
+    for i in range(2,ell_max+1):
+        for j in range(i+1,ell_max+1):
+            a_ij[i-2,j-2] = get_angle_multipole_ij(alm,i,j)
+    plt.figure()
+    plt.imshow(np.abs(np.cos(a_ij[:,:])),interpolation = 'nearest',cmap=rvb,vmin=0,vmax=1)#,norm=matplotlib.colors.LogNorm())#"gist_yarg")
+    plt.xticks(np.arange(0,ell_max-1),np.arange(2,ell_max+1))
+    plt.yticks(np.arange(0,ell_max-1),np.arange(2,ell_max+1))
+    plt.grid()
+    plt.title("%s, (l,b) scalar product"%name)
+    plt.colorbar()
+
+
+
 def get_average_angle(array_theta_phi):
     '''
     Gives the average position on the sky for a given set of angles 
@@ -158,6 +183,9 @@ def get_average_angle(array_theta_phi):
 
 
 def extend_thetaphi(theta_phi):
+    '''
+    Intermediate function used to extend a list of angles with their "oposite directions" 
+    '''
     list_temp = np.copy(theta_phi)
     ll = len(theta_phi)
     list_temp[:,0]=np.pi-list_temp[:,0]
@@ -204,19 +232,164 @@ def get_angular_mean_disp(alm_in,ell_max,check=0):
 
 
 
-    
-def plot_stat_ell_dep(histo,aad_data):
+
+
+
+def determine_FD_binning(array_in):
     '''
-    This function plots the histograms for the a_a_d, varying with l_max, 
-    as well as the l_max dependent plot
-    input : histo.shape = (nsim,ell_max-2)
+    returns the optimal binning, according to Freedman-Diaconis rule: see http://en.wikipedia.org/wiki/Freedman%E2%80%93Diaconis_rule
     '''
-    ell_max = histo.shape[1]+2
-    nsim = histo.shape[0]
+    sorted_arr = np.sort(array_in)
+    Q3 = scipy.stats.scoreatpercentile(sorted_arr,3/4.)    
+    Q1 = scipy.stats.scoreatpercentile(sorted_arr,1/4.)    
+    IQR = Q3-Q1
+    bin_size = 2.*IQR*np.size(array_in)**(-1/3.)
+    return np.round((sorted_arr[-1] - sorted_arr[0])/bin_size)
+
+
+def get_stat_histogram(aad_sim,window_len=0,interp=3,check=0,gaussian_smo = 3,smoothing_method = "gaussian"):
+    '''
+    returns the most likely value, as well as the inf and sup boundary for 68%, and 97%
+    '''
+    nbin = determine_FD_binning(aad_sim)
+    counts,bin = np.histogram(aad_sim,nbin)
+    if smoothing_method == "savgol":
+        if window_len == 0:
+            window_len = round(nbin/6.)*2+1
+        smo_counts = scipy.signal.savgol_filter(counts,window_len,interp)
+    elif smoothing_method == "gaussian":
+        smo_counts = scipy.ndimage.filters.gaussian_filter(counts,gaussian_smo)
+    top = min(np.where(smo_counts==max(smo_counts))[0])
+    area = np.float(smo_counts[top])/np.size(aad_sim)
+    inf_s = top
+    sup_s = top
+    area_inf=0
+    area_sup=0
+    endwhile = 0
+    while (area < 0.6827) and (endwhile == 0):
+        if (sup_s < nbin-1) and (area_sup<=area_inf):
+            sup_s = sup_s+1
+            area_sup = np.sum(smo_counts[top:sup_s])
+        elif (inf_s > 1):
+            inf_s = inf_s-1
+            area_inf = np.sum(smo_counts[inf_s:top])
+        else: 
+            print "1 sigma: nbin = %d, inf = %f, sup = %f: not enough stats?"%(nbin,inf_s,sup_s)
+            endwhile = 1
+        area = np.float(area_sup+area_inf)/np.size(aad_sim)
+    inf_2s = inf_s
+    sup_2s = sup_s
+    endwhile = 0
+    while (area < 0.9545) and (endwhile == 0):
+        if (sup_2s < nbin-1) and (area_sup<=area_inf):
+            sup_2s = sup_2s+1
+            area_sup = np.sum(smo_counts[top:sup_2s])
+        elif (inf_2s > 0):
+            inf_2s = inf_2s-1
+            area_inf = np.sum(smo_counts[inf_2s:top])
+        else: 
+            print "2 sigma: nbin = %d, inf = %f, sup = %f: not enough stats?"%(nbin,inf_2s,sup_2s)
+            endwhile = 1
+        area = np.float(np.sum(smo_counts[inf_2s:sup_2s]))/np.size(aad_sim)
+    bin_mean = (bin[1:]+bin[:-1])/2
+    if check == 1:
+        plt.plot(bin_mean,counts, label="original histo")
+        plt.plot(bin_mean,smo_counts, label="smoothed histo")
+        plt.legend(loc="best")
+        plt.axvline(bin_mean[top],color = "r")
+        plt.axvline(bin_mean[inf_s],color = "b")
+        plt.axvline(bin_mean[sup_s],color = "b")
+        plt.axvline(bin_mean[inf_2s],color = "g")
+        plt.axvline(bin_mean[sup_2s],color = "g")    
+    return bin_mean[top],bin_mean[inf_s],bin_mean[sup_s],bin_mean[inf_2s],bin_mean[sup_2s]
+    #return top,inf_s,sup_s,inf_2s,sup_2s
+
+
+def plot_stat_ell_dep_curve(aad_sims,aad_data,unit=180/np.pi):
+    '''
+    This function plots the l_max dependent average angular distance 
+    compared to simulations, with best value, 1sigma and 2sigma error using get_stat_histogram() 
+    input : aad_sims = aad of simulations, in radian [aad_sims.shape = (nsim,ell_max-2)]
+            unit = factor multiplying the array (default = 180/np.pi)
+    '''
+    aad_sims = np.array(aad_sims)*unit
+    aad_data = np.array(aad_data)*unit
+    ell_max = aad_sims.shape[1]+2
+    nsim = aad_sims.shape[0]
     if np.size(aad_data) != ell_max - 2:
-        print 'problem in the lmax dimension of the histograms vs data'
-    [plt.plot(np.arange(3,ell_max+1),histo[i,:],"y",alpha = 0.1) for i in range(nsim)]
-    plt.plot(np.arange(3,ell_max+1),histo.mean(axis=0),"r-")
-    plt.plot(np.arange(3,ell_max+1),aad_data,"ko")
-    plt.xlabel("$\ell_{\rm max}$")
-    plt.ylabel("Average angle (degree)")
+        print 'problem in the lmax dimension of the sims vs data'
+    plt.figure()
+    [plt.plot(np.arange(3,ell_max+1),aad_sims[i,:],"y-.",alpha = 0.02) for i in range(nsim)]    
+#    plt.plot(np.arange(3,ell_max+1),top,"r-")
+    stats = []
+    for j in range(0,aad_sims.shape[1]):
+        stats.append(get_stat_histogram(aad_sims[:,j]))
+    stats = np.array(stats)
+    plt.plot(np.arange(3,ell_max+1),stats[:,0],"b--",label="Simulations")
+    plt.fill_between(np.arange(3,ell_max+1),stats[:,1],stats[:,2],alpha = 0.2, color="b")
+    plt.fill_between(np.arange(3,ell_max+1),stats[:,3],stats[:,4],alpha = 0.2, color="b")
+    #plt.plot(np.arange(3,ell_max+1),aad_sims.mean(axis=0),"r-")
+    plt.plot(np.arange(3,ell_max+1),aad_data,"ko",label="Data")
+    plt.xlabel("$\ell_{\mathrm{max}}$")
+    plt.ylabel("Average angle")
+    plt.legend(loc="best")
+
+
+def plot_stat_ell_dep_hist(aad_sims,aad_data,unit=180/np.pi):
+    '''
+    This function plots the histograms for the a_a_d, varying with l_max.
+    input : aad_sims = aad of simulations, in radian [aad_sims.shape = (nsim,ell_max-2)]
+            unit = factor multiplying the array (default = 180/np.pi)
+    '''
+    aad_sims = np.array(aad_sims)*unit
+    aad_data = np.array(aad_data)*unit
+    ell_max = aad_sims.shape[1]+2
+    nsim = aad_sims.shape[0]
+    if unit == 180/np.pi:
+        angle_un = "Degree"
+    elif unit == 1.:
+        angle_un = "Radians"
+    if np.size(aad_data) != ell_max - 2:
+        print 'problem in the lmax dimension of the sims vs data'
+    for i,v in enumerate(xrange(aad_sims.shape[1])):
+        v+=1
+        plt.subplots_adjust(hspace=0.000,wspace = 0.000)
+        ww = np.where(aad_sims[:,i]<aad_data[i])[0]
+        nbin = determine_FD_binning(aad_sims[:,i])
+        ax = plt.subplot(aad_sims.shape[1]/2+aad_sims.shape[1]%2,2,v)
+        ax.hist(aad_sims[:,i],nbin,histtype = "step")
+        ax.set_xlim(0,1*unit)
+        ax.set_xticks([10,20,30,40,50])
+        ax.set_xlabel("Average dispersion [%s]"%angle_un)
+        ax.axvline(aad_data[i],color="red",label="pval = %.4f"%(np.float(np.size(ww))/nsim))
+        ax.legend(frameon=False,loc ="best",fontsize = 'small')
+        plt.gca().yaxis.set_major_locator(plt.NullLocator())
+        #plt.setp(ax.get_xticklabels(), visible=False) 
+
+
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+
+
+def make_colormap(seq):
+    """
+    stolen from http://stackoverflow.com/questions/16834861/create-own-colormap-using-matplotlib-and-plot-color-scale
+    Return a LinearSegmentedColormap
+    seq: a sequence of floats and RGB-tuples. The floats should be increasing
+    and in the interval (0,1).
+    """
+    seq = [(None,) * 3, 0.0] + list(seq) + [1.0, (None,) * 3]
+    cdict = {'red': [], 'green': [], 'blue': []}
+    for i, item in enumerate(seq):
+        if isinstance(item, float):
+            r1, g1, b1 = seq[i - 1]
+            r2, g2, b2 = seq[i + 1]
+            cdict['red'].append([item, r1, r2])
+            cdict['green'].append([item, g1, g2])
+            cdict['blue'].append([item, b1, b2])
+    return matplotlib.colors.LinearSegmentedColormap('CustomMap', cdict)
+
+
