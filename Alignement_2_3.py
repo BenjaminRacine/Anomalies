@@ -152,6 +152,22 @@ def plot_first_multipoles(map,nside,ell_max):
 
 
 
+
+def make_colormap(seq):
+    """                                                                                                                                                                            stolen from http://stackoverflow.com/questions/16834861/create-own-colormap-using-matplotlib-and-plot-color-scale                                                              Return a LinearSegmentedColormap                                                                                                                                               seq: a sequence of floats and RGB-tuples. The floats should be increasing
+    """
+    seq = [(None,) * 3, 0.0] + list(seq) + [1.0, (None,) * 3]
+    cdict = {'red': [], 'green': [], 'blue': []}
+    for i, item in enumerate(seq):
+        if isinstance(item, float):
+            r1, g1, b1 = seq[i - 1]
+            r2, g2, b2 = seq[i + 1]
+            cdict['red'].append([item, r1, r2])
+            cdict['green'].append([item, g1, g2])
+            cdict['blue'].append([item, b1, b2])
+    return matplotlib.colors.LinearSegmentedColormap('CustomMap', cdict)
+
+
 def plot_scal_prod(ell_max,map, name ="Input map"):
     '''
     2D plot of the scalar product of 2 directions
@@ -220,7 +236,7 @@ def get_angular_mean_disp(alm_in,ell_max,check=0):
         angle_mean.append(get_average_angle(np.array(tt)[np.arange(num_ell),[int(x) for x in list(('{:0%db}'%num_ell).format(i))]]))
         a_a_d.append(compute_mean_disp(np.array(angles)[i,:,:],np.array(angle_mean)[i]))
     if check == 1:
-        i_min = np.min(np.where(a_a_d == min(a_a_d))[0])
+        i_min = min(np.where(a_a_d == min(a_a_d))[0])
         print i_min
         map_0 = np.zeros(12*16**2)
         pix = hp.ang2pix(16,np.array(angles)[i_min,:,0],np.array(angles)[i_min,:,1])
@@ -229,9 +245,6 @@ def get_angular_mean_disp(alm_in,ell_max,check=0):
         map_0[pix_mean] = hp.UNSEEN
         hp.mollview(map_0,title = "aad = %f"%(a_a_d[i_min]))        
     return a_a_d
-
-
-
 
 
 
@@ -244,7 +257,7 @@ def determine_FD_binning(array_in):
     Q1 = scipy.stats.scoreatpercentile(sorted_arr,1/4.)    
     IQR = Q3-Q1
     bin_size = 2.*IQR*np.size(array_in)**(-1/3.)
-    return np.round((sorted_arr[-1] - sorted_arr[0])/bin_size)
+    return min(np.round(np.sqrt(np.size(array_in))),np.round((sorted_arr[-1] - sorted_arr[0])/bin_size))
 
 
 def get_stat_histogram(aad_sim,window_len=0,interp=3,check=0,gaussian_smo = 3,smoothing_method = "gaussian"):
@@ -305,7 +318,7 @@ def get_stat_histogram(aad_sim,window_len=0,interp=3,check=0,gaussian_smo = 3,sm
     #return top,inf_s,sup_s,inf_2s,sup_2s
 
 
-def plot_stat_ell_dep_curve(aad_sims,aad_data,unit=180/np.pi):
+def plot_stat_ell_dep_curve_old(aad_sims,aad_data,unit=180/np.pi):
     '''
     This function plots the l_max dependent average angular distance 
     compared to simulations, with best value, 1sigma and 2sigma error using get_stat_histogram() 
@@ -335,7 +348,53 @@ def plot_stat_ell_dep_curve(aad_sims,aad_data,unit=180/np.pi):
     plt.legend(loc="best")
 
 
-def plot_stat_ell_dep_hist(aad_sims,aad_data,unit=180/np.pi):
+
+def plot_stat_ell_dep_curve(aad_sims,aad_samples,aad_data=None,data_title="Data",unit=180/np.pi):
+    '''
+    This function plots the l_max dependent average angular distance
+    compared to simulations, with best value, 1sigma and 2sigma error using get_stat_histogram()
+    input : aad_sims = aad of simulations, in radian [aad_sims.shape = (nsim,ell_max-2)]
+            unit = factor multiplying the array (default = 180/np.pi)
+            aad_data: additional data
+    '''
+    aad_samples = np.array(aad_samples)*unit
+    aad_sims = np.array(aad_sims)*unit
+    aad_data = np.array(aad_data)*unit
+    ell_max = aad_sims.shape[1]+2
+    nsim = aad_sims.shape[0]
+    if unit == 180/np.pi:
+        angle_un = "Degree"
+    elif unit == 1.:
+        angle_un = "Radians"
+    if np.size(aad_data) != ell_max - 2:
+        print 'problem in the lmax dimension of the sims vs data'
+    plt.figure()
+    [plt.plot(np.arange(3,ell_max+1),aad_sims[i,:],"y-.",alpha = 0.02) for i in range(nsim)]
+    stats = []
+    stats_samples = []
+    for j in range(0,aad_sims.shape[1]):
+        stats.append(get_stat_histogram(aad_sims[:,j]))
+        stats_samples.append(get_stat_histogram(aad_samples[:,j]))
+    stats = np.array(stats)
+    stats_samples = np.array(stats_samples)
+    plt.plot(np.arange(3,ell_max+1),stats[:,0],"b--",label="Simulations")
+    plt.fill_between(np.arange(3,ell_max+1),stats[:,1],stats[:,2],alpha = 0.2, color="b")
+    plt.fill_between(np.arange(3,ell_max+1),stats[:,3],stats[:,4],alpha = 0.2, color="b")
+    if aad_data != None:
+        if np.rank(aad_data)==1:
+            plt.plot(np.arange(3,ell_max+1),aad_data,"ro",label=data_title)
+        else:
+            for i in range(aad_data.shape[1]):
+                plt.plot(np.arange(3,ell_max+1)+(i+1)*0.1,aad_data[:,i],"o",label=data_title[i])        
+    plt.errorbar(np.arange(3,ell_max+1),stats_samples[:,0],np.array([np.abs(stats_samples[:,0]-stats_samples[:,1]),np.abs(stats_samples[:,0]-stats_samples[:,2])]),fmt='ko',label="Samples")
+    plt.xlabel("$\ell_{\mathrm{max}}$")
+    plt.ylabel("Average dispersion [%s]"%angle_un)
+    plt.legend(loc="best")
+
+
+
+
+def plot_stat_ell_dep_hist_old(aad_sims,aad_data,unit=180/np.pi):
     '''
     This function plots the histograms for the a_a_d, varying with l_max.
     input : aad_sims = aad of simulations, in radian [aad_sims.shape = (nsim,ell_max-2)]
@@ -369,27 +428,35 @@ def plot_stat_ell_dep_hist(aad_sims,aad_data,unit=180/np.pi):
 
 
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-
-
-def make_colormap(seq):
-    """
-    stolen from http://stackoverflow.com/questions/16834861/create-own-colormap-using-matplotlib-and-plot-color-scale
-    Return a LinearSegmentedColormap
-    seq: a sequence of floats and RGB-tuples. The floats should be increasing
-    and in the interval (0,1).
-    """
-    seq = [(None,) * 3, 0.0] + list(seq) + [1.0, (None,) * 3]
-    cdict = {'red': [], 'green': [], 'blue': []}
-    for i, item in enumerate(seq):
-        if isinstance(item, float):
-            r1, g1, b1 = seq[i - 1]
-            r2, g2, b2 = seq[i + 1]
-            cdict['red'].append([item, r1, r2])
-            cdict['green'].append([item, g1, g2])
-            cdict['blue'].append([item, b1, b2])
-    return matplotlib.colors.LinearSegmentedColormap('CustomMap', cdict)
-
-
+def plot_stat_ell_dep_hist(aad_sims,aad_data,aad_samples,unit=180/np.pi):
+    '''    
+    This function plots the histograms for the a_a_d, varying with l_max.    
+    input : aad_sims = aad of simulations, in radian [aad_sims.shape = (nsim,ell_max-2)]
+            unit = factor multiplying the array (default = 180/np.pi)            
+    '''
+    aad_sims = np.array(aad_sims)*unit
+    aad_samples = np.array(aad_samples)*unit
+    aad_data = np.array(aad_data)*unit
+    ell_max = aad_sims.shape[1]+2
+    nsim = aad_sims.shape[0]
+    if unit == 180/np.pi:
+        angle_un = "Degree"
+    elif unit == 1.:
+        angle_un = "Radians"
+    if np.size(aad_data) != ell_max - 2:
+        print 'problem in the lmax dimension of the sims vs data'
+    for i,v in enumerate(xrange(aad_sims.shape[1])):
+        v+=1
+        plt.subplots_adjust(hspace=0.000,wspace = 0.000)
+        ww = np.where(aad_sims[:,i]<aad_data[i])[0]
+        nbin = determine_FD_binning(aad_sims[:,i])
+        nbin_samples = determine_FD_binning(aad_samples[:,i])
+        ax = plt.subplot(aad_sims.shape[1]/2+aad_sims.shape[1]%2,2,v)
+        ax.hist(aad_sims[:,i],nbin,histtype = "step",color = "b")
+        ax.hist(aad_samples[:,i],nbin_samples,histtype = "step",color = "r")
+        ax.set_xlim(0,1*unit)
+        ax.set_xticks([10,20,30,40,50])
+        ax.set_xlabel("Average dispersion [%s]"%angle_un)
+        ax.axvline(aad_data[i],color="red",label="pval = %.4f"%(np.float(np.size(ww))/nsim))
+        ax.legend(frameon=False,loc ="best",fontsize = 'small')
+        plt.gca().yaxis.set_major_locator(plt.NullLocator())
