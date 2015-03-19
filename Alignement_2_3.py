@@ -5,6 +5,8 @@ import matplotlib.colors
 import scipy.stats
 import scipy.signal
 import scipy.optimize as op
+from tabulate import tabulate
+
 
 def filtermap(alm,ell):
     '''
@@ -318,35 +320,6 @@ def get_stat_histogram(aad_sim,window_len=0,interp=3,check=0,gaussian_smo = 3,sm
     #return top,inf_s,sup_s,inf_2s,sup_2s
 
 
-def plot_stat_ell_dep_curve_old(aad_sims,aad_data,unit=180/np.pi):
-    '''
-    This function plots the l_max dependent average angular distance 
-    compared to simulations, with best value, 1sigma and 2sigma error using get_stat_histogram() 
-    input : aad_sims = aad of simulations, in radian [aad_sims.shape = (nsim,ell_max-2)]
-            unit = factor multiplying the array (default = 180/np.pi)
-    '''
-    aad_sims = np.array(aad_sims)*unit
-    aad_data = np.array(aad_data)*unit
-    ell_max = aad_sims.shape[1]+2
-    nsim = aad_sims.shape[0]
-    if np.size(aad_data) != ell_max - 2:
-        print 'problem in the lmax dimension of the sims vs data'
-    plt.figure()
-    [plt.plot(np.arange(3,ell_max+1),aad_sims[i,:],"y-.",alpha = 0.02) for i in range(nsim)]    
-#    plt.plot(np.arange(3,ell_max+1),top,"r-")
-    stats = []
-    for j in range(0,aad_sims.shape[1]):
-        stats.append(get_stat_histogram(aad_sims[:,j]))
-    stats = np.array(stats)
-    plt.plot(np.arange(3,ell_max+1),stats[:,0],"b--",label="Simulations")
-    plt.fill_between(np.arange(3,ell_max+1),stats[:,1],stats[:,2],alpha = 0.2, color="b")
-    plt.fill_between(np.arange(3,ell_max+1),stats[:,3],stats[:,4],alpha = 0.2, color="b")
-    #plt.plot(np.arange(3,ell_max+1),aad_sims.mean(axis=0),"r-")
-    plt.plot(np.arange(3,ell_max+1),aad_data,"ko",label="Data")
-    plt.xlabel("$\ell_{\mathrm{max}}$")
-    plt.ylabel("Average angle")
-    plt.legend(loc="best")
-
 
 
 def plot_stat_ell_dep_curve(aad_sims,aad_samples,aad_data=None,data_title="Data",unit=180/np.pi):
@@ -359,17 +332,14 @@ def plot_stat_ell_dep_curve(aad_sims,aad_samples,aad_data=None,data_title="Data"
     '''
     aad_samples = np.array(aad_samples)*unit
     aad_sims = np.array(aad_sims)*unit
-    aad_data = np.array(aad_data)*unit
     ell_max = aad_sims.shape[1]+2
     nsim = aad_sims.shape[0]
     if unit == 180/np.pi:
         angle_un = "Degree"
     elif unit == 1.:
         angle_un = "Radians"
-    if np.size(aad_data) != ell_max - 2:
-        print 'problem in the lmax dimension of the sims vs data'
     plt.figure()
-    [plt.plot(np.arange(3,ell_max+1),aad_sims[i,:],"y-.",alpha = 0.02) for i in range(nsim)]
+    #[plt.plot(np.arange(3,ell_max+1),aad_sims[i,:],"y-.",alpha = 0.02) for i in range(nsim)]
     stats = []
     stats_samples = []
     for j in range(0,aad_sims.shape[1]):
@@ -380,13 +350,14 @@ def plot_stat_ell_dep_curve(aad_sims,aad_samples,aad_data=None,data_title="Data"
     plt.plot(np.arange(3,ell_max+1),stats[:,0],"b--",label="Simulations")
     plt.fill_between(np.arange(3,ell_max+1),stats[:,1],stats[:,2],alpha = 0.2, color="b")
     plt.fill_between(np.arange(3,ell_max+1),stats[:,3],stats[:,4],alpha = 0.2, color="b")
-    if aad_data != None:
+    plt.errorbar(np.arange(3,ell_max+1),stats_samples[:,0],np.array([np.abs(stats_samples[:,0]-stats_samples[:,1]),np.abs(stats_samples[:,0]-stats_samples[:,2])]),fmt='ko',label="Samples")
+    if aad_data is not None:
+        aad_data = np.array(aad_data)*unit
         if np.rank(aad_data)==1:
             plt.plot(np.arange(3,ell_max+1),aad_data,"ro",label=data_title)
         else:
-            for i in range(aad_data.shape[1]):
-                plt.plot(np.arange(3,ell_max+1)+(i+1)*0.1,aad_data[:,i],"o",label=data_title[i])        
-    plt.errorbar(np.arange(3,ell_max+1),stats_samples[:,0],np.array([np.abs(stats_samples[:,0]-stats_samples[:,1]),np.abs(stats_samples[:,0]-stats_samples[:,2])]),fmt='ko',label="Samples")
+            for i in range(aad_data.shape[0]):
+                plt.plot(np.arange(3,ell_max+1)+(i+1)*0.1,aad_data[i,:],"o",label=data_title[i])        
     plt.xlabel("$\ell_{\mathrm{max}}$")
     plt.ylabel("Average dispersion [%s]"%angle_un)
     plt.legend(loc="best")
@@ -394,61 +365,26 @@ def plot_stat_ell_dep_curve(aad_sims,aad_samples,aad_data=None,data_title="Data"
 
 
 
-def plot_stat_ell_dep_hist_old(aad_sims,aad_data,unit=180/np.pi):
-    '''
-    This function plots the histograms for the a_a_d, varying with l_max.
-    input : aad_sims = aad of simulations, in radian [aad_sims.shape = (nsim,ell_max-2)]
-            unit = factor multiplying the array (default = 180/np.pi)
-    '''
-    aad_sims = np.array(aad_sims)*unit
-    aad_data = np.array(aad_data)*unit
-    ell_max = aad_sims.shape[1]+2
-    nsim = aad_sims.shape[0]
-    if unit == 180/np.pi:
-        angle_un = "Degree"
-    elif unit == 1.:
-        angle_un = "Radians"
-    if np.size(aad_data) != ell_max - 2:
-        print 'problem in the lmax dimension of the sims vs data'
-    for i,v in enumerate(xrange(aad_sims.shape[1])):
-        v+=1
-        plt.subplots_adjust(hspace=0.000,wspace = 0.000)
-        ww = np.where(aad_sims[:,i]<aad_data[i])[0]
-        nbin = determine_FD_binning(aad_sims[:,i])
-        ax = plt.subplot(aad_sims.shape[1]/2+aad_sims.shape[1]%2,2,v)
-        ax.hist(aad_sims[:,i],nbin,histtype = "step")
-        ax.set_xlim(0,1*unit)
-        ax.set_xticks([10,20,30,40,50])
-        ax.set_xlabel("Average dispersion [%s]"%angle_un)
-        ax.axvline(aad_data[i],color="red",label="pval = %.4f"%(np.float(np.size(ww))/nsim))
-        ax.legend(frameon=False,loc ="best",fontsize = 'small')
-        plt.gca().yaxis.set_major_locator(plt.NullLocator())
-        #plt.setp(ax.get_xticklabels(), visible=False) 
-
-
-
-
-def plot_stat_ell_dep_hist(aad_sims,aad_data,aad_samples,unit=180/np.pi):
+def plot_stat_ell_dep_hist(aad_sims,aad_samples,aad_data=None,data_title="Data",unit=180/np.pi):
     '''    
     This function plots the histograms for the a_a_d, varying with l_max.    
     input : aad_sims = aad of simulations, in radian [aad_sims.shape = (nsim,ell_max-2)]
             unit = factor multiplying the array (default = 180/np.pi)            
     '''
+    fig=plt.figure()
     aad_sims = np.array(aad_sims)*unit
     aad_samples = np.array(aad_samples)*unit
-    aad_data = np.array(aad_data)*unit
+    if aad_data is not None:
+        aad_data = np.array(aad_data)*unit
     ell_max = aad_sims.shape[1]+2
     nsim = aad_sims.shape[0]
     if unit == 180/np.pi:
         angle_un = "Degree"
     elif unit == 1.:
         angle_un = "Radians"
-    if np.size(aad_data) != ell_max - 2:
-        print 'problem in the lmax dimension of the sims vs data'
     for i,v in enumerate(xrange(aad_sims.shape[1])):
         v+=1
         plt.subplots_adjust(hspace=0.000,wspace = 0.000)
-        ww = np.where(aad_sims[:,i]<aad_data[i])[0]
         nbin = determine_FD_binning(aad_sims[:,i])
         nbin_samples = determine_FD_binning(aad_samples[:,i])
         ax = plt.subplot(aad_sims.shape[1]/2+aad_sims.shape[1]%2,2,v)
@@ -457,6 +393,46 @@ def plot_stat_ell_dep_hist(aad_sims,aad_data,aad_samples,unit=180/np.pi):
         ax.set_xlim(0,1*unit)
         ax.set_xticks([10,20,30,40,50])
         ax.set_xlabel("Average dispersion [%s]"%angle_un)
-        ax.axvline(aad_data[i],color="red",label="pval = %.4f"%(np.float(np.size(ww))/nsim))
+        if aad_data is not None:
+            colors_line = ['k', 'g', 'y', 'c','m']
+            if np.rank(aad_data)==1:
+                ww = np.where(aad_sims[:,i]<aad_data[i])[0]
+                ax.axvline(aad_data[i],label="%s p=%.4f"%(data_title,np.float(np.size(ww))/nsim),color = colors_line[0])
+            else:
+                for j in range(aad_data.shape[0]):
+                    ww = np.where(aad_sims[:,i]<aad_data[j,i])[0]
+                    ax.axvline(aad_data[j,i],label="%s p=%.4f"%(data_title[j],np.float(np.size(ww))/nsim),color = colors_line[j])
         ax.legend(frameon=False,loc ="best",fontsize = 'small')
+        #ax.set_figheight(15)
+        #ax.set_figwidth(5*aad_sims.shape[1]/2.)
         plt.gca().yaxis.set_major_locator(plt.NullLocator())
+        fig.set_size_inches(8,4*aad_sims.shape[1]/2.,forward=True)
+
+
+
+
+def print_stat_ell_dep_hist(aad_sims,aad_samples,aad_data=None,data_title="Data",unit=180/np.pi,type_print = "latex"):
+    aad_sims = np.array(aad_sims)*unit
+    aad_samples = np.array(aad_samples)*unit
+    if aad_data is not None:
+        aad_data = np.array(aad_data)*unit
+        header = list(data_title)
+        header.insert(0,r"ell_max \ methods")
+    ell_max = aad_sims.shape[1]+2
+    nsim = aad_sims.shape[0]
+    pval_tot = []
+    for i,v in enumerate(xrange(aad_sims.shape[1])):
+        v+=1
+        nbin = determine_FD_binning(aad_sims[:,i])
+        nbin_samples = determine_FD_binning(aad_samples[:,i])
+        if aad_data is not None:
+            pval = [str(i+3)]
+            if np.rank(aad_data)==1:
+                ww = np.where(aad_sims[:,i]<aad_data[i])[0]
+                pval.append("%.3f"%(np.float(np.size(ww))/nsim))
+            else:
+                for j in range(aad_data.shape[0]):
+                    ww = np.where(aad_sims[:,i]<aad_data[j,i])[0]
+                    pval.append("%.3f"%(np.float(np.size(ww))/nsim))
+        pval_tot.append(pval)
+    print tabulate(pval_tot, header, tablefmt=type_print)
